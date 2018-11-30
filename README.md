@@ -8,6 +8,7 @@ curl https://nixos.org/nix/install | sh
 nix-shell
 
 # Do your jazz
+cabal v2-build
 ```
 
 Torrent Client written in Haskell
