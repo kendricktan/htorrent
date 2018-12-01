@@ -1,4 +1,5 @@
-{ mkDerivation, stdenv, base, mtl, semigroups, cabal-install
+{ mkDerivation, Cabal, bencoding, bytestring, stdenv, base, mtl,
+  containers, semigroups, cabal-install
 } : mkDerivation {
   pname = "htorrent";
   version = "0.0.1";
@@ -6,8 +7,9 @@
   buildTools = [
     cabal-install
   ];
+  setupHaskellDepends = [ base Cabal ];
   libraryHaskellDepends = [
-    base mtl semigroups
+    base bytestring bencoding containers mtl semigroups
   ];
   testHaskellDepends = [
     base
