@@ -13,34 +13,6 @@ import           Data.Maybe      (Maybe (..))
 import           Data.Text       (Text (..))
 
 
-data SingleFileInfo = SingleFile
-  { _sfLength      :: Integer
-  , _sfMd5sum      :: Maybe ByteString
-  , _sfName        :: Text
-  , _sfPieceLength :: Integer
-  , _sfPieces      :: ByteString
-  , _sfPrivate     :: Maybe Integer
-  } deriving (Generic, Show, Read, Eq)
-
-
-instance BEncode SingleFileInfo where
-  toBEncode SingleFile {..} = toDict $
-       "length"       .=! _sfLength
-    .: "md5sum"       .=? _sfMd5sum
-    .: "name"         .=! _sfName
-    .: "piece length" .=! _sfPieceLength
-    .: "pieces"       .=! _sfPieces
-    .: "private"      .=? _sfPrivate
-    .: endDict
-
-  fromBEncode = fromDict $ do
-    SingleFile <$>! "length"
-               <*>? "md5sum"
-               <*>! "name"
-               <*>! "piece length"
-               <*>! "pieces"
-               <*>? "private"
-
 data FilesInfo = FilesInfo
   { _fiLength :: Integer
   , _fiMd5sum :: Maybe ByteString
@@ -59,26 +31,35 @@ instance BEncode FilesInfo where
               <*>? "md5sum"
               <*>! "path"
 
-data MultiFileInfo = MultiFileInfo
-  { _mfFiles       :: [FilesInfo]
-  , _mfName        :: Text
-  , _mfPieceLength :: Integer
-  , _mfPieces      :: ByteString
+data TorrentInfo = TorrentInfo
+  { _tiFiles       :: Maybe [FilesInfo]
+  , _tiLength      :: Maybe Integer
+  , _tiMd5sum      :: Maybe ByteString
+  , _tiName        :: Text
+  , _tiPieceLength :: Integer
+  , _tiPieces      :: ByteString
+  , _tiPrivate     :: Maybe Integer
   } deriving (Generic, Show, Read, Eq)
 
-instance BEncode MultiFileInfo where
-  toBEncode MultiFileInfo {..} = toDict $
-       "files"        .=! _mfFiles
-    .: "name"         .=! _mfName
-    .: "piece length" .=! _mfPieceLength
-    .: "pieces"       .=! _mfPieces
+instance BEncode TorrentInfo where
+  toBEncode TorrentInfo {..} = toDict $
+       "files"        .=? _tiFiles
+    .: "length"       .=? _tiLength
+    .: "md5sum"       .=? _tiMd5sum
+    .: "name"         .=! _tiName
+    .: "piece length" .=! _tiPieceLength
+    .: "pieces"       .=! _tiPieces
+    .: "private"      .=? _tiPrivate
     .: endDict
 
   fromBEncode = fromDict $ do
-    MultiFileInfo <$>! "files"
-                  <*>! "name"
-                  <*>! "piece length"
-                  <*>! "pieces"
+    TorrentInfo <$>? "files"
+                <*>? "length"
+                <*>? "md5sum"
+                <*>! "name"
+                <*>! "piece length"
+                <*>! "pieces"
+                <*>? "private"
 
 data MetaInfo = MetaInfo
   { _miAnnounce     :: Text
@@ -87,8 +68,7 @@ data MetaInfo = MetaInfo
   , _miCreatedBy    :: Maybe Text
   , _miCreation     :: Maybe Integer
   , _miEncoding     :: Maybe Text
-  , _mimInfo        :: Maybe MultiFileInfo  -- MetaInfo Multi
-  , _misInfo        :: Maybe SingleFileInfo -- MetaInfo Single
+  , _miInfo         :: TorrentInfo
   } deriving (Generic, Show, Eq, Read)
 
 instance BEncode MetaInfo where
@@ -99,8 +79,7 @@ instance BEncode MetaInfo where
     .: "created by"    .=? _miCreatedBy
     .: "creation date" .=? _miCreation
     .: "encoding"      .=? _miEncoding
-    .: "info"          .=? _mimInfo
-    .: "info"          .=? _misInfo
+    .: "info"          .=! _miInfo
     .: endDict
 
   fromBEncode = fromDict $ do
@@ -110,5 +89,4 @@ instance BEncode MetaInfo where
              <*>? "created by"
              <*>? "creation date"
              <*>? "encoding"
-             <*>? "info"
-             <*>? "info"
+             <*>! "info"

@@ -1,5 +1,5 @@
-{ mkDerivation, Cabal, bencoding, bytestring, stdenv, base, mtl,
-  containers, semigroups, text, cabal-install
+{ mkDerivation, Cabal, cryptohash, binary, bencoding, bytestring, stdenv, base, mtl,
+  containers, network, semigroups, text, cabal-install
 } : mkDerivation {
   pname = "htorrent";
   version = "0.0.1";
@@ -9,7 +9,7 @@
   ];
   setupHaskellDepends = [ base Cabal ];
   libraryHaskellDepends = [
-    base bytestring bencoding containers mtl text semigroups
+    base binary bytestring bencoding containers mtl network text semigroups
   ];
   testHaskellDepends = [
     base
