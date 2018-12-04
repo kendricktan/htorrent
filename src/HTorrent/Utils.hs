@@ -1,7 +1,7 @@
 module HTorrent.Utils where
 
-import Data.Char
 import           Control.Applicative
+import           Data.Char            (toLower)
 import           Data.Text            (Text (..))
 import           HTorrent.Types
 import           Network.URI
@@ -21,12 +21,12 @@ type Scheme = String
 -- | Parse Announce To Scheme (UDP/HTTP), Host, Port
 --
 parseAnnounce :: Text -> Maybe (Scheme, Host, Port)
-parseAnnounce t = liftA3 (,,) s h p
+parseAnnounce t = liftA3 (,,) (((<$>) toLower) <$> s) h p
   where uri = parseURI $ T.unpack t
         s = filter (/= ':') <$> uriScheme <$> uri
         uriA = uri >>= uriAuthority
         h = uriRegName <$> uriA
-        p = uriPort <$> uriA
+        p = (filter (/= ':')) <$> uriPort <$> uriA
 
 -- | Computes Info Hash of the given Torrent File
 --

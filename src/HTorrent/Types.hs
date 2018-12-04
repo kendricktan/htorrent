@@ -13,6 +13,8 @@ import           Data.Maybe      (Maybe (..))
 import           Data.Text       (Text (..))
 
 
+data HTorrentError = InvalidAnnounce Text deriving Show
+
 data FilesInfo = FilesInfo
   { _fiLength :: Integer
   , _fiMd5sum :: Maybe ByteString
