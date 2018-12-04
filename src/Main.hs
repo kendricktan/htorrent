@@ -8,11 +8,10 @@ import           Data.Int
 import           Data.Text                 (Text (..))
 import           Data.Word
 import           HTorrent.Types
+import           HTorrent.Utils
 import           Network.Socket
 import           Network.Socket            (SockAddr (..), Socket (..))
 import           System.Environment
-
-import qualified Crypto.Hash.SHA1          as SHA1
 
 import qualified Network.Socket            as NS
 import qualified Network.Socket.ByteString as NSBS
@@ -27,12 +26,6 @@ connectConst = 0
 
 connectionIdConst = 0x41727101980
 
-binencodeStr :: String -> BS.ByteString
-binencodeStr s = BSL.toStrict $ foldl (\b a -> BSL.append b (Binary.encode (a :: Char))) (BSL.empty) s
-
-getInfoHash :: MetaInfo -> BS.ByteString
-getInfoHash m = SHA1.hash $ BSL.toStrict $ BE.encode (_miInfo m)
-
 getSockAddrFromAnnounce :: Text -> IO SockAddr
 getSockAddrFromAnnounce t = do
   sockaddrs <- NS.getAddrInfo (Just NS.defaultHints) (Just host) (Just port)
@@ -43,11 +36,11 @@ getSockAddrFromAnnounce t = do
 
 sendHandshake :: MetaInfo -> Socket -> IO ()
 sendHandshake m s = do
-  sockaddr <- getSockAddrFromAnnounce (_miAnnounce m)
   let h1 = BSL.toStrict $ Binary.encode (connectionIdConst :: Int64)
       h2 = BSL.toStrict $ Binary.encode (connectConst :: Int32)
       h3 = BSL.toStrict $ Binary.encode (861058307 :: Int32)
       payload = BS.concat [h1, h2, h3]
+  sockaddr <- getSockAddrFromAnnounce (_miAnnounce m)
   bytesent <- NSBS.sendTo s payload sockaddr
   putStrLn $ "Bytes sent: " ++ show bytesent
   return ()

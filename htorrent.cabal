@@ -21,6 +21,9 @@ executable htorrent
   main-is:             Main.hs
 
   other-modules:       HTorrent.Types
+                     , HTorrent.Utils
+                     , HTorrent.IPC
+                     , HTorrent.Tracker.UDP
 
   -- other-extensions:
   build-depends:       base >=4.11 && <4.12
@@ -31,6 +34,8 @@ executable htorrent
                      , cryptohash == 0.11.9
                      , mtl == 2.2.2
                      , network == 2.8.0.0
+                     , random == 1.1
                      , text == 1.2.3.1
+                     , network-uri == 2.6.1.0
   hs-source-dirs:      src
   default-language:    Haskell2010
