@@ -1,6 +1,7 @@
 module HTorrent.Utils where
 
 import           Control.Applicative
+import           Data.ByteString      (ByteString)
 import           Data.Char            (toLower)
 import           Data.Text            (Text (..))
 import           HTorrent.Types
@@ -35,9 +36,14 @@ getInfoHash m = SHA1.hash $ BSL.toStrict $ BE.encode (_miInfo m)
 
 -- | Encodes String Into Binary Format
 --
-binEncodeStr :: String -> BS.ByteString
-binEncodeStr s = BSL.toStrict $ foldl f (BSL.empty) s
+binEncodeStr :: String -> BSL.ByteString
+binEncodeStr s = foldl f (BSL.empty) s
   where f = (\b a -> BSL.append b (Binary.encode a))
+
+-- | Array/ByteString Slice
+--
+sliceBS :: Int -> Int -> ByteString -> ByteString
+sliceBS start end = BS.take (end - start + 1) . BS.drop start
 
 -- | RNG Helpers
 --

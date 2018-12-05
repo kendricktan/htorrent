@@ -24,6 +24,20 @@ import qualified Data.ByteString.Lazy      as BSL
 import qualified Data.Text                 as T
 
 
+hTorrent :: MetaInfo -> IO ()
+hTorrent m = do
+  es <- newSocket m
+  case es of
+    Left err -> print $ "Error: " ++ show err
+    Right s  -> do
+      br <- udpConnecting s
+      case br of
+        Left err -> print err
+        Right br' -> do
+          (udpAnnouncing (sliceBS 8 16 br') m) s
+          return ()
+
+
 main :: IO ()
 main = do
   (torFile : _) <- getArgs
@@ -31,7 +45,4 @@ main = do
   let decoded = BE.decode contents :: BE.Result MetaInfo
   case decoded of
     Left e  -> putStrLn $ "Error: " ++ show e
-    Right v -> do
-      e <- newSocket v
-      either undefined (\s -> runSocket s udpHandshake) e
-      return ()
+    Right v -> hTorrent v

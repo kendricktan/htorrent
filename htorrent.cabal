@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                htorrent
-version:             0.0.1
+version:             0.0.0.1
 -- synopsis:
 -- description:
 license:             MIT
@@ -20,8 +20,10 @@ executable htorrent
 
   main-is:             Main.hs
 
-  other-modules:       HTorrent.Types
+  other-modules:       HTorrent.Errors
                      , HTorrent.Utils
+                     , HTorrent.Types
+                     , HTorrent.Version
                      , HTorrent.IPC
                      , HTorrent.Tracker.UDP
 
