@@ -11,7 +11,7 @@ import           Data.Int
 import           Data.Word
 import           HTorrent.Errors
 import           HTorrent.Types
-import           HTorrent.Utils            (binEncodeStr, getInfoHash,
+import           HTorrent.Utils            (binEncodeStr, getInfoHash, getTotalLength,
                                             randomInt32, randomInteger, sliceBS)
 import           HTorrent.Version
 import           Network.Socket            (Socket (..))
@@ -72,22 +72,28 @@ btAnnouncingPayload cid m = btConstructPayload [p1, p2, p3, p4, p5, p6, p7, p8, 
   where p1  = BSL.fromStrict cid
         p2  = Binary.encode btAnnounce
         p3  = Binary.encode btTransactionId
-        p4  = Binary.encode $ getInfoHash m
-        p5  = Binary.encode btPeerId
+        p4  = BSL.fromStrict $ getInfoHash m
+        p5  = BSL.fromStrict btPeerId
         p6  = Binary.encode (0 :: Int64) -- Downloaded
-        p7  = Binary.encode (0 :: Int64) -- Left
+        p7  = Binary.encode (fromInteger (getTotalLength m) :: Int64) -- Bytes Needed Left
         p8  = Binary.encode (0 :: Int64) -- Uploaded
-        p9  = Binary.encode (0 :: Int32) -- Event
+        p9  = Binary.encode (2 :: Int32) -- Event
         p10 = Binary.encode (0 :: Word32) -- Ip
         p11 = Binary.encode (btKey :: Word32) -- Unique Key
         p12 = Binary.encode (-1 :: Int32) -- Num_want
-        p13 = Binary.encode (8008 :: Word16) -- Port
-        p14 = Binary.encode (0 :: Word16) -- Extensions
+        p13 = Binary.encode (80 :: Word16) -- Port
+        p14 = Binary.encode (1 :: Word16) -- Extensions
 
 -- Response Checker
 --
-validHandshakeResp :: BS.ByteString -> Bool
-validHandshakeResp s = p1 == 0 && p2 == btTransactionId
+validConnectingResp :: BS.ByteString -> Bool
+validConnectingResp s = p1 == 0 && p2 == btTransactionId
+  where p1 = (Binary.decode $ BSL.fromStrict $ sliceBS 0 4 s) :: Int32
+        p2 = (Binary.decode $ BSL.fromStrict $ sliceBS 4 8 s) :: Int32
+
+
+validAnnouncingResp :: BS.ByteString -> Bool
+validAnnouncingResp s = p1 == 1 && p2 == btTransactionId
   where p1 = (Binary.decode $ BSL.fromStrict $ sliceBS 0 4 s) :: Int32
         p2 = (Binary.decode $ BSL.fromStrict $ sliceBS 4 8 s) :: Int32
 
@@ -100,16 +106,19 @@ udpConnecting s = do
   -- Get Response
   bytesRecv <- NSBS.recv s 2048
   -- Check Response
-  case validHandshakeResp bytesRecv of
+  case validConnectingResp bytesRecv of
     True  -> return $ Right bytesRecv
     False -> return . Left $ InvalidRecvBytes "Connecting" bytesRecv
 
 
-udpAnnouncing :: BS.ByteString -> MetaInfo -> Socket -> IO (Either HTorrentError ())
+udpAnnouncing :: BS.ByteString -> MetaInfo -> Socket -> IO (Either HTorrentError BS.ByteString)
 udpAnnouncing cid m s = do
   let payload = btAnnouncingPayload cid m
+  print payload
   -- Sent Payload
   bytesSentNo <- NSBS.send s payload
-  bytesRecv <- NSBS.recv s 2048
-  print $ ((Binary.decode $ BSL.fromStrict $ sliceBS 0 4 bytesRecv) :: Int32)
-  return $ Right ()
+  -- Recv Bytes
+  bytesRecv <- NSBS.recv s 10240
+  case validAnnouncingResp bytesRecv of
+    True -> return $ Right bytesRecv
+    False -> return . Left $ InvalidRecvBytes "Announcing" bytesRecv

@@ -13,6 +13,11 @@ import           Data.Maybe      (Maybe (..))
 import           Data.Text       (Text (..))
 
 
+type Host = String
+type Port = String
+type Scheme = String
+
+
 data FilesInfo = FilesInfo
   { _fiLength :: Integer
   , _fiMd5sum :: Maybe ByteString

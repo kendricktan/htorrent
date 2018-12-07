@@ -34,8 +34,14 @@ hTorrent m = do
       case br of
         Left err -> print err
         Right br' -> do
-          (udpAnnouncing (sliceBS 8 16 br') m) s
-          return ()
+          ab <- (udpAnnouncing (sliceBS 8 16 br') m) s
+          case ab of
+            Left err -> print $ "Error: " ++ show err
+            Right ab' -> do
+              let peerips = sliceBS 20 (BS.length ab') ab'
+                  peerips' = [ (sliceBS i (i+4) peerips, sliceBS (i+4) (i+6) peerips) | i <- [0,6..(BS.length peerips)-6]]
+                  peerips'' = (\(h, p) -> (binDecodeHost h, Binary.decode (BSL.fromStrict p) :: Word16)) <$> peerips'
+              print peerips''
 
 
 main :: IO ()

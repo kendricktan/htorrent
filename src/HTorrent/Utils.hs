@@ -4,6 +4,7 @@ import           Control.Applicative
 import           Data.ByteString      (ByteString)
 import           Data.Char            (toLower)
 import           Data.Text            (Text (..))
+import           Data.Word
 import           HTorrent.Types
 import           Network.URI
 import           System.Random
@@ -14,10 +15,6 @@ import qualified Data.Binary          as Binary
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text            as T
-
-type Host = String
-type Port = String
-type Scheme = String
 
 -- | Parse Announce To Scheme (UDP/HTTP), Host, Port
 --
@@ -39,6 +36,27 @@ getInfoHash m = SHA1.hash $ BSL.toStrict $ BE.encode (_miInfo m)
 binEncodeStr :: String -> BSL.ByteString
 binEncodeStr s = foldl f (BSL.empty) s
   where f = (\b a -> BSL.append b (Binary.encode a))
+
+
+-- | Gets IP Address 
+--
+binDecodeHost :: BS.ByteString -> Host
+binDecodeHost b = foldr (\a b-> a ++ if b == "" then b else "." ++ b) "" hs
+  where f s e = (show . toInteger) (Binary.decode (BSL.fromStrict $ sliceBS s e b) :: Word8)
+        hs = [f i (i+1) | i <- [0..3]]
+
+-- | Is Single or Multiple Files
+--
+isSingleFile :: MetaInfo -> Bool
+isSingleFile m = case _tiLength (_miInfo m) of
+                   Just _  -> True
+                   Nothing -> False
+
+getTotalLength :: MetaInfo -> Integer
+getTotalLength m = case isSingleFile m of
+                     True  -> let (Just l) = _tiLength (_miInfo m) in l
+                     False -> let (Just files) = _tiFiles (_miInfo m)
+                               in foldl (\b a -> b + (_fiLength a)) 0 files
 
 -- | Array/ByteString Slice
 --
