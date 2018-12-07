@@ -38,12 +38,20 @@ binEncodeStr s = foldl f (BSL.empty) s
   where f = (\b a -> BSL.append b (Binary.encode a))
 
 
--- | Gets IP Address 
+-- | Gets Host IP Address
 --
 binDecodeHost :: BS.ByteString -> Host
 binDecodeHost b = foldr (\a b-> a ++ if b == "" then b else "." ++ b) "" hs
   where f s e = (show . toInteger) (Binary.decode (BSL.fromStrict $ sliceBS s e b) :: Word8)
         hs = [f i (i+1) | i <- [0..3]]
+
+binDecodePort :: BS.ByteString -> Port
+binDecodePort p = (show . toInteger) (Binary.decode (BSL.fromStrict p) :: Word16)
+
+-- | Decodes Peers ByteString information
+binDecodePeers :: BS.ByteString -> [(Host, Port)]
+binDecodePeers b = (\(h, p) -> (binDecodeHost h, binDecodePort p)) <$> b'
+  where b' = [ (sliceBS i (i+4) b, sliceBS (i+4) (i+6) b) | i <- [0,6..(BS.length b)-6]]
 
 -- | Is Single or Multiple Files
 --

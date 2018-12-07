@@ -3,7 +3,6 @@ module HTorrent.IPC where
 
 import           Control.Exception
 import           Data.Char         (toLower)
-import           HTorrent.Errors
 import           HTorrent.Types
 import           HTorrent.Utils
 import           Network.Socket    (Socket (..))
@@ -17,7 +16,7 @@ defaultSendTimeout = 500
 
 -- Helper functions
 --
-newSocket :: MetaInfo -> IO (Either HTorrentError Socket)
+newSocket :: MetaInfo -> IO (Either HTError Socket)
 newSocket m = case parseAnnounce (_miAnnounce m) of
   Nothing -> return $ Left (InvalidAnnounce $ _miAnnounce m)
   Just (s, h, p) -> do

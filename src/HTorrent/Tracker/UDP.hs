@@ -9,7 +9,6 @@ module HTorrent.Tracker.UDP where
 
 import           Data.Int
 import           Data.Word
-import           HTorrent.Errors
 import           HTorrent.Types
 import           HTorrent.Utils            (binEncodeStr, getInfoHash, getTotalLength,
                                             randomInt32, randomInteger, sliceBS)
@@ -99,7 +98,7 @@ validAnnouncingResp s = p1 == 1 && p2 == btTransactionId
 
 -- Handlers
 --
-udpConnecting :: Socket -> IO (Either HTorrentError BS.ByteString)
+udpConnecting :: Socket -> IO (Either HTError BS.ByteString)
 udpConnecting s = do
   -- Send Payload
   bytesSentNo <- NSBS.send s btConnectingPayload
@@ -111,7 +110,7 @@ udpConnecting s = do
     False -> return . Left $ InvalidRecvBytes "Connecting" bytesRecv
 
 
-udpAnnouncing :: BS.ByteString -> MetaInfo -> Socket -> IO (Either HTorrentError BS.ByteString)
+udpAnnouncing :: BS.ByteString -> MetaInfo -> Socket -> IO (Either HTError BS.ByteString)
 udpAnnouncing cid m s = do
   let payload = btAnnouncingPayload cid m
   print payload

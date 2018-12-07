@@ -1,21 +1,45 @@
-{-# LANGUAGE ConstraintKinds   #-}
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE ConstraintKinds            #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RecordWildCards            #-}
 
 module HTorrent.Types where
 
 import           GHC.Generics
 
+
 import           Data.BEncode
-import           Data.ByteString (ByteString (..))
-import           Data.Maybe      (Maybe (..))
-import           Data.Text       (Text (..))
+import           Data.ByteString          (ByteString (..))
+import           Data.Maybe               (Maybe (..))
+import           Data.Text                (Text (..))
+
+import           Control.Monad.Except
+import           Control.Monad.Reader
+import           Control.Monad.State.Lazy
 
 
 type Host = String
 type Port = String
 type Scheme = String
+
+
+data HTEnv = HTEnv
+  { _hteMetaInfo :: MetaInfo
+  } deriving Show
+
+
+data HTState = HTState
+  { _htsTotalDownloadedBytes :: Int
+  , _htsDownloadedPieces     :: Int
+  } deriving Show
+
+
+data HTError = InvalidAnnounce Text
+             | InvalidRecvBytes Text ByteString deriving (Show, Generic)
+
+newtype HTMonad a = HTMonad (ReaderT HTEnv (StateT HTState (ExceptT HTError IO)) a)
+  deriving (Applicative, Monad, MonadReader HTEnv, MonadError HTError, Functor, MonadIO)
 
 
 data FilesInfo = FilesInfo

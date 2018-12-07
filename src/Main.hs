@@ -38,10 +38,8 @@ hTorrent m = do
           case ab of
             Left err -> print $ "Error: " ++ show err
             Right ab' -> do
-              let peerips = sliceBS 20 (BS.length ab') ab'
-                  peerips' = [ (sliceBS i (i+4) peerips, sliceBS (i+4) (i+6) peerips) | i <- [0,6..(BS.length peerips)-6]]
-                  peerips'' = (\(h, p) -> (binDecodeHost h, Binary.decode (BSL.fromStrict p) :: Word16)) <$> peerips'
-              print peerips''
+              let peerips = binDecodePeers (sliceBS 20 (BS.length ab') ab') -- Response starts after 20 bytes
+              print peerips
 
 
 main :: IO ()
