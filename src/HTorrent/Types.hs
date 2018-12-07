@@ -13,35 +13,52 @@ import           Data.BEncode
 import           Data.ByteString          (ByteString (..))
 import           Data.Maybe               (Maybe (..))
 import           Data.Text                (Text (..))
+import           Network.Socket           (Socket (..))
 
 import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State.Lazy
 
 
+-- | Aliases
+--
 type Host = String
 type Port = String
 type Scheme = String
 
 
-data HTEnv = HTEnv
-  { _hteMetaInfo :: MetaInfo
+-- | Composition
+--
+data HTGlobalEnv = HTGlobalEnv
+  { _htgeMetaInfo :: MetaInfo
   } deriving Show
 
 
-data HTState = HTState
-  { _htsTotalDownloadedBytes :: Int
-  , _htsDownloadedPieces     :: Int
+data HTGlobalState = HTGlobalState
+  { _htgsActivePeers          :: [(Host, Port)]
+  , _htgsTotalDownloadedBytes :: Int
+  , _htgsDownloadedPieces     :: Int
   } deriving Show
+
+
+data HTLocalEnv = HTLocalEnv
+  { _htlSocket :: Socket } deriving Show
 
 
 data HTError = InvalidAnnounce Text
              | InvalidRecvBytes Text ByteString deriving (Show, Generic)
 
-newtype HTMonad a = HTMonad (ReaderT HTEnv (StateT HTState (ExceptT HTError IO)) a)
-  deriving (Applicative, Monad, MonadReader HTEnv, MonadError HTError, Functor, MonadIO)
+-- newtype HTMonad a = HTMonad (ReaderT HTEnv (StateT HTState (ExceptT HTError IO)) a)
+--   deriving (Applicative, Monad, MonadReader HTEnv, MonadError HTError, Functor, MonadIO)
+--
+-- runHTMonad :: HTEnv -> HTState -> HTMonad a -> IO (Either HTError a)
+-- runHTMonad env state (HTMonad a) = runExceptT sout
+--   where rout = runReaderT a env
+--         sout = evalStateT rout state
 
 
+-- | Primitives
+--
 data FilesInfo = FilesInfo
   { _fiLength :: Integer
   , _fiMd5sum :: Maybe ByteString
