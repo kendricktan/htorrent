@@ -22,6 +22,7 @@ executable htorrent
 
   other-modules:       HTorrent.Utils
                      , HTorrent.Types
+                     , HTorrent.Node
                      , HTorrent.Version
                      , HTorrent.IPC
                      , HTorrent.Tracker.UDP
@@ -36,7 +37,6 @@ executable htorrent
                      , mtl == 2.2.2
                      , network == 2.8.0.0
                      , random == 1.1
-                     , stm == 2.5.0.0
                      , text == 1.2.3.1
                      , network-uri == 2.6.1.0
   hs-source-dirs:      src

@@ -12,4 +12,4 @@ cabal v2-repl
 cabal v2-build
 ```
 
-Torrent Client written in Haskell
+_Simple_ Torrent Client written in Haskell.

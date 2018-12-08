@@ -11,6 +11,7 @@ import           GHC.Generics
 
 import           Data.BEncode
 import           Data.ByteString          (ByteString (..))
+import           Data.Map.Lazy            (Map (..))
 import           Data.Maybe               (Maybe (..))
 import           Data.Text                (Text (..))
 import           Network.Socket           (Socket (..))
@@ -22,6 +23,8 @@ import           Control.Monad.State.Lazy
 
 -- | Aliases
 --
+
+type Hash = ByteString
 type Host = String
 type Port = String
 type Scheme = String
@@ -29,32 +32,32 @@ type Scheme = String
 
 -- | Composition
 --
-data HTGlobalEnv = HTGlobalEnv
-  { _htgeMetaInfo :: MetaInfo
+data HTEnv = HTEnv
+  { _hteMetaInfo :: MetaInfo
   } deriving Show
 
 
-data HTGlobalState = HTGlobalState
-  { _htgsActivePeers          :: [(Host, Port)]
-  , _htgsTotalDownloadedBytes :: Int
-  , _htgsDownloadedPieces     :: Int
+data HTState = HTState
+  { _htsPeers                :: [(Host, Port)]
+  , _htsCurrentConnected     :: Maybe Socket
+  , _htsTotalDownloadedBytes :: Integer
+  , _htsDownloadedPieces     :: Map Integer Bool
+  , _htsPiecesIndex          :: Map Hash Integer
   } deriving Show
-
-
-data HTLocalEnv = HTLocalEnv
-  { _htlSocket :: Socket } deriving Show
 
 
 data HTError = InvalidAnnounce Text
-             | InvalidRecvBytes Text ByteString deriving (Show, Generic)
+             | InvalidRecvBytes Text ByteString
+             | NoResponse Host Port
+             deriving (Show, Generic)
 
--- newtype HTMonad a = HTMonad (ReaderT HTEnv (StateT HTState (ExceptT HTError IO)) a)
---   deriving (Applicative, Monad, MonadReader HTEnv, MonadError HTError, Functor, MonadIO)
---
--- runHTMonad :: HTEnv -> HTState -> HTMonad a -> IO (Either HTError a)
--- runHTMonad env state (HTMonad a) = runExceptT sout
---   where rout = runReaderT a env
---         sout = evalStateT rout state
+newtype HTMonad a = HTMonad (ReaderT HTEnv (StateT HTState (ExceptT HTError IO)) a)
+   deriving (Applicative, Monad, MonadState HTState, MonadReader HTEnv, MonadError HTError, Functor, MonadIO)
+
+runHTMonad :: HTMonad a -> HTEnv -> HTState -> IO (Either HTError a)
+runHTMonad (HTMonad a) env state = runExceptT sout
+  where rout = runReaderT a env
+        sout = evalStateT rout state
 
 
 -- | Primitives
