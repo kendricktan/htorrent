@@ -6,6 +6,7 @@ import           Data.Char            (toLower)
 import           Data.Text            (Text (..))
 import           Data.Word
 import           HTorrent.Types
+import           Network.Socket       (tupleToHostAddress)
 import           Network.URI
 import           System.Random
 
@@ -37,11 +38,10 @@ binEncodeStr :: String -> BSL.ByteString
 binEncodeStr s = foldl f (BSL.empty) s
   where f = (\b a -> BSL.append b (Binary.encode a))
 
-
 -- | Gets Host IP Address
 --
-binDecodeHost :: BS.ByteString -> Host
-binDecodeHost b = foldr (\a b-> a ++ if b == "" then b else "." ++ b) "" hs
+binDecodeIP :: BS.ByteString -> IP
+binDecodeIP b = foldr (\a b -> a ++ if b == "" then b else "." ++ b) "" hs
   where f s e = (show . toInteger) (Binary.decode (BSL.fromStrict $ sliceBS s e b) :: Word8)
         hs = [f i (i+1) | i <- [0..3]]
 
@@ -49,8 +49,8 @@ binDecodePort :: BS.ByteString -> Port
 binDecodePort p = (show . toInteger) (Binary.decode (BSL.fromStrict p) :: Word16)
 
 -- | Decodes Peers ByteString information
-binDecodePeers :: BS.ByteString -> [(Host, Port)]
-binDecodePeers b = (\(h, p) -> (binDecodeHost h, binDecodePort p)) <$> b'
+binDecodePeers :: BS.ByteString -> [(IP, Port)]
+binDecodePeers b = (\(h, p) -> (binDecodeIP h, binDecodePort p)) <$> b'
   where b' = [ (sliceBS i (i+4) b, sliceBS (i+4) (i+6) b) | i <- [0,6..(BS.length b)-6]]
 
 -- | Is Single or Multiple Files
@@ -65,6 +65,12 @@ getTotalLength m = case isSingleFile m of
                      True  -> let (Just l) = _tiLength (_miInfo m) in l
                      False -> let (Just files) = _tiFiles (_miInfo m)
                                in foldl (\b a -> b + (_fiLength a)) 0 files
+
+-- | Payload Construction
+--
+btConstructPayload :: [BSL.ByteString] -> BS.ByteString
+btConstructPayload b = BS.concat $ BSL.toStrict <$> b
+
 
 -- | Array/ByteString Slice
 --

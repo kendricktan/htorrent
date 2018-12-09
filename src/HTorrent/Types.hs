@@ -14,7 +14,7 @@ import           Data.ByteString          (ByteString (..))
 import           Data.Map.Lazy            (Map (..))
 import           Data.Maybe               (Maybe (..))
 import           Data.Text                (Text (..))
-import           Network.Socket           (Socket (..))
+import           Network.Socket           (Socket (..), HostAddress(..))
 
 import           Control.Monad.Except
 import           Control.Monad.Reader
@@ -24,24 +24,27 @@ import           Control.Monad.State.Lazy
 -- | Aliases
 --
 
-type Hash = ByteString
-type Host = String
-type Port = String
+type Hash   = ByteString
+type IP     = String
+type Host   = String
+type Port   = String
 type Scheme = String
 
 
--- | Composition
+-- | Env & State
 --
 data HTEnv = HTEnv
-  { _hteMetaInfo :: MetaInfo
+  { _hteMetaInfo     :: MetaInfo
   } deriving Show
 
 
 data HTState = HTState
-  { _htsPeers                :: [(Host, Port)]
+  { _htsPeers                :: [(IP, Port)]
+  , _htsConnectionId         :: Maybe ByteString
   , _htsCurrentConnected     :: Maybe Socket
   , _htsTotalDownloadedBytes :: Integer
-  , _htsDownloadedPieces     :: Map Integer Bool
+  , _htsHasDownloadedPieces  :: Map Integer Bool
+  , _htsDownloadedPieces     :: Map Integer ByteString
   , _htsPiecesIndex          :: Map Hash Integer
   } deriving Show
 
@@ -51,8 +54,10 @@ data HTError = InvalidAnnounce Text
              | NoResponse Host Port
              deriving (Show, Generic)
 
+
 newtype HTMonad a = HTMonad (ReaderT HTEnv (StateT HTState (ExceptT HTError IO)) a)
    deriving (Applicative, Monad, MonadState HTState, MonadReader HTEnv, MonadError HTError, Functor, MonadIO)
+
 
 runHTMonad :: HTMonad a -> HTEnv -> HTState -> IO (Either HTError a)
 runHTMonad (HTMonad a) env state = runExceptT sout

@@ -3,12 +3,16 @@
 module Main where
 
 import           Control.Exception.Base    (try)
+import           Control.Monad.Except
+import           Control.Monad.Reader
+import           Control.Monad.State.Lazy
+import           Control.Monad.Trans       (liftIO)
 import           Data.Either               (either)
 import           Data.Int
 import           Data.Text                 (Text (..))
 import           Data.Word
 import           HTorrent.IPC
-import HTorrent.Node
+import           HTorrent.Node
 import           HTorrent.Tracker.UDP
 import           HTorrent.Types
 import           HTorrent.Utils
@@ -27,28 +31,15 @@ import qualified Data.Map                  as M
 import qualified Data.Text                 as T
 
 
-hTorrent :: MetaInfo -> IO ()
-hTorrent m = do
-  maybepeers <- runHTMonad udpTracker env state
-  print maybepeers
-  where state = HTState [] Nothing 0 M.empty M.empty
-        env   = HTEnv m
-
---   es <- newSocket m
---   case es of
---     Left err -> print $ "Error: " ++ show err
---     Right s  -> do
---       br <- udpConnecting s
---       case br of
---         Left err -> print err
---         Right br' -> do
---           ab <- (udpAnnouncing (sliceBS 8 16 br') m) s
---           case ab of
---             Left err -> print $ "Error: " ++ show err
---             Right ab' -> do
---               let peerips = binDecodePeers (sliceBS 20 (BS.length ab') ab') -- Response starts after 20 bytes
---               print peerips
---
+hTorrent :: HTMonad ()
+hTorrent = do
+  -- Once udp tracker is initialized
+  -- We'll attempt to connect to each peer
+  -- And extract the relevant file contents
+  initUdpTracker
+  -- Connect to peers now
+  initPeerWireProtocol
+  return ()
 
 main :: IO ()
 main = do
@@ -57,4 +48,8 @@ main = do
   let decoded = BE.decode contents :: BE.Result MetaInfo
   case decoded of
     Left e  -> putStrLn $ "Torrent File Read Error: " ++ show e
-    Right v -> hTorrent v
+    Right v -> do
+      let state = HTState [] Nothing Nothing 0 M.empty M.empty M.empty
+          env   = HTEnv v
+      runHTMonad hTorrent env state
+      return ()

@@ -9,12 +9,13 @@ module HTorrent.Tracker.UDP where
 
 import           Data.Int
 import           Data.Word
+import           HTorrent.IPC
 import           HTorrent.Types
-import           HTorrent.Utils            (binEncodeStr, getInfoHash, getTotalLength,
+import           HTorrent.Utils            (binEncodeStr, btConstructPayload,
+                                            getInfoHash, getTotalLength,
                                             randomInt32, randomInteger, sliceBS)
 import           HTorrent.Version
 import           Network.Socket            (Socket (..))
-import           System.IO.Unsafe          (unsafePerformIO)
 
 import qualified Network.Socket            as NS
 import qualified Network.Socket.ByteString as NSBS
@@ -43,23 +44,8 @@ btScrape = 2
 btError :: Int32
 btError = 3
 
--- Client Identity
---
-btPeerId :: BS.ByteString
-btPeerId = BSL.toStrict $ binEncodeStr s
-  where s = "-HT" ++ (filter (/= '.') hVersion) ++ "-" ++ (show . unsafePerformIO $ randomInteger 100000000000 999999999999)
-
-btTransactionId :: Int32
-btTransactionId = fromInteger . unsafePerformIO $ randomInt32
-
-btKey :: Word32
-btKey = fromInteger . unsafePerformIO $ randomInt32
-
 -- Protocol Payloads
 --
-btConstructPayload :: [BSL.ByteString] -> BS.ByteString
-btConstructPayload b = BS.concat $ BSL.toStrict <$> b
-
 btConnectingPayload :: BS.ByteString
 btConnectingPayload = btConstructPayload [p1, p2, p3]
   where p1 = Binary.encode btConnectionId
@@ -113,11 +99,10 @@ udpConnecting s = do
 udpAnnouncing :: BS.ByteString -> MetaInfo -> Socket -> IO (Either HTError BS.ByteString)
 udpAnnouncing cid m s = do
   let payload = btAnnouncingPayload cid m
-  print payload
   -- Sent Payload
   bytesSentNo <- NSBS.send s payload
   -- Recv Bytes
   bytesRecv <- NSBS.recv s 10240
   case validAnnouncingResp bytesRecv of
-    True -> return $ Right bytesRecv
+    True  -> return $ Right bytesRecv
     False -> return . Left $ InvalidRecvBytes "Announcing" bytesRecv
