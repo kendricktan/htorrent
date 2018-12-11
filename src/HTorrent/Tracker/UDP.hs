@@ -7,13 +7,14 @@
 module HTorrent.Tracker.UDP where
 
 
+import           Control.Monad.Except
+import           Control.Monad.Reader
+import           Control.Monad.State.Lazy
 import           Data.Int
 import           Data.Word
 import           HTorrent.IPC
 import           HTorrent.Types
-import           HTorrent.Utils            (binEncodeStr, btConstructPayload,
-                                            getInfoHash, getTotalLength,
-                                            randomInt32, randomInteger, sliceBS)
+import           HTorrent.Utils
 import           HTorrent.Version
 import           Network.Socket            (Socket (..))
 
@@ -84,25 +85,41 @@ validAnnouncingResp s = p1 == 1 && p2 == btTransactionId
 
 -- Handlers
 --
-udpConnecting :: Socket -> IO (Either HTError BS.ByteString)
-udpConnecting s = do
-  -- Send Payload
-  bytesSentNo <- NSBS.send s btConnectingPayload
-  -- Get Response
-  bytesRecv <- NSBS.recv s 2048
-  -- Check Response
-  case validConnectingResp bytesRecv of
-    True  -> return $ Right bytesRecv
-    False -> return . Left $ InvalidRecvBytes "Connecting" bytesRecv
-
-
-udpAnnouncing :: BS.ByteString -> MetaInfo -> Socket -> IO (Either HTError BS.ByteString)
-udpAnnouncing cid m s = do
-  let payload = btAnnouncingPayload cid m
-  -- Sent Payload
-  bytesSentNo <- NSBS.send s payload
+udpConnecting :: HTMonad ()
+udpConnecting = do
+  socket <- gets _htsConnectedSocket
+  -- Send Connecting Payload
+  htSocketSend socket btConnectingPayload
   -- Recv Bytes
-  bytesRecv <- NSBS.recv s 10240
+  htSocketRecv socket 2048
+  -- Get last received buffer
+  bytesRecv <- gets _htsLastRecvBuffer
+  -- Ensure received bytes adhere to the protocol
+  case validConnectingResp bytesRecv of
+    True  -> do
+      -- Store connectionId
+      modify (\s -> s { _htsConnectionId = sliceBS 8 16 bytesRecv } )
+      return ()
+    False -> throwError $ InvalidRecvBytes "Connecting" bytesRecv
+
+
+udpAnnouncing :: HTMonad ()
+udpAnnouncing = do
+  socket <- gets _htsConnectedSocket
+  cid <- gets _htsConnectionId
+  m <- asks _hteMetaInfo
+  let payload = btAnnouncingPayload cid m
+  -- Send Announcement Payload
+  htSocketSend socket payload
+  -- Recv Bytes
+  htSocketRecv socket 10240
+  -- Get last received buffer
+  bytesRecv <- gets _htsLastRecvBuffer
   case validAnnouncingResp bytesRecv of
-    True  -> return $ Right bytesRecv
-    False -> return . Left $ InvalidRecvBytes "Announcing" bytesRecv
+    False -> throwError $ InvalidRecvBytes "Announcing" bytesRecv
+    True  -> case BS.length bytesRecv > 20 of
+               False -> throwError NoAvailablePeers
+               True -> do
+                 let peers = binDecodePeers (sliceBS 20 (BS.length bytesRecv) bytesRecv)
+                 modify (\s -> s { _htsPeers = peers })
+                 return ()

@@ -1,21 +1,28 @@
 module HTorrent.Utils where
 
 import           Control.Applicative
-import           Data.ByteString      (ByteString)
-import           Data.Char            (toLower)
-import           Data.Text            (Text (..))
+import           Control.Exception
+import           Control.Monad.Except
+import           Control.Monad.State.Lazy
+import           Control.Monad.Trans
+import           Data.ByteString           (ByteString)
+import           Data.Char                 (toLower)
+import           Data.Text                 (Text (..))
 import           Data.Word
 import           HTorrent.Types
-import           Network.Socket       (tupleToHostAddress)
+import           Network.Socket            (tupleToHostAddress)
 import           Network.URI
 import           System.Random
+import           System.Timeout            (timeout)
 
-import qualified Crypto.Hash.SHA1     as SHA1
-import qualified Data.BEncode         as BE
-import qualified Data.Binary          as Binary
-import qualified Data.ByteString      as BS
-import qualified Data.ByteString.Lazy as BSL
-import qualified Data.Text            as T
+import qualified Crypto.Hash.SHA1          as SHA1
+import qualified Data.BEncode              as BE
+import qualified Data.Binary               as Binary
+import qualified Data.ByteString           as BS
+import qualified Data.ByteString.Lazy      as BSL
+import qualified Data.Text                 as T
+import qualified Network.Socket            as NS
+import qualified Network.Socket.ByteString as NSBS
 
 -- | Parse Announce To Scheme (UDP/HTTP), Host, Port
 --
@@ -71,6 +78,43 @@ getTotalLength m = case isSingleFile m of
 btConstructPayload :: [BSL.ByteString] -> BS.ByteString
 btConstructPayload b = BS.concat $ BSL.toStrict <$> b
 
+-- | Socket helpers (with try and timeout)
+--
+defaultTimeout = 500000
+
+htSocketConnect :: NS.Socket -> NS.SockAddr -> HTMonad ()
+htSocketConnect socket a = do
+  maybeSocket <- liftIO $ timeout defaultTimeout $ (try $ NS.connect socket a :: IO (Either IOError ()))
+  case maybeSocket of
+    Nothing -> throwError SocketConnectTimeout
+    Just e  -> case e of
+                 Left err -> throwError SocketConnectError
+                 Right _  -> do
+                   modify (\s -> s { _htsConnectedSocket = socket })
+                   return ()
+
+
+htSocketSend :: NS.Socket -> BS.ByteString -> HTMonad ()
+htSocketSend s bs = do
+  maybeSent <- liftIO $ timeout defaultTimeout $ (try $ NSBS.send s bs :: IO (Either IOError Int))
+  case maybeSent of
+    Nothing                   -> throwError SocketSendTimeout
+    Just eitherErrOrBytesSent -> case eitherErrOrBytesSent of
+                                   Left _            -> throwError SocketSendError
+                                   Right bytesSentNo -> case bytesSentNo == BS.length bs of
+                                                          True  -> return ()
+                                                          False -> throwError $ SocketSendInvalidLength (BS.length bs) bytesSentNo
+
+htSocketRecv :: NS.Socket -> Int -> HTMonad ()
+htSocketRecv s i = do
+  maybeRecv <- liftIO $ timeout defaultTimeout $ (try $ NSBS.recv s i :: IO (Either IOError BS.ByteString))
+  case maybeRecv of
+    Nothing                   -> throwError SocketRecvTimeout
+    Just eitherErrOrBytesRecv -> case eitherErrOrBytesRecv of
+                                   Left _          -> throwError SocketRecvError
+                                   Right bytesRecv -> do
+                                     modify (\s -> s { _htsLastRecvBuffer = bytesRecv } )
+                                     return ()
 
 -- | Array/ByteString Slice
 --

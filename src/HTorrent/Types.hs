@@ -14,7 +14,7 @@ import           Data.ByteString          (ByteString (..))
 import           Data.Map.Lazy            (Map (..))
 import           Data.Maybe               (Maybe (..))
 import           Data.Text                (Text (..))
-import           Network.Socket           (Socket (..), HostAddress(..))
+import           Network.Socket           (HostAddress (..), Socket (..))
 
 import           Control.Monad.Except
 import           Control.Monad.Reader
@@ -39,9 +39,11 @@ data HTEnv = HTEnv
 
 
 data HTState = HTState
-  { _htsPeers                :: [(IP, Port)]
-  , _htsConnectionId         :: Maybe ByteString
-  , _htsCurrentConnected     :: Maybe Socket
+  { _htsAnnouncers           :: [Text]
+  , _htsPeers                :: [(IP, Port)]
+  , _htsConnectionId         :: ByteString
+  , _htsConnectedSocket      :: Socket
+  , _htsLastRecvBuffer       :: ByteString
   , _htsTotalDownloadedBytes :: Integer
   , _htsHasDownloadedPieces  :: Map Integer Bool
   , _htsDownloadedPieces     :: Map Integer ByteString
@@ -51,7 +53,18 @@ data HTState = HTState
 
 data HTError = InvalidAnnounce Text
              | InvalidRecvBytes Text ByteString
-             | NoResponse Host Port
+             | NoTrackerResponse
+             | NoPeerResponse
+             | NoAvailablePeers
+             | NoAvailableAnnounce
+             | SocketSendTimeout
+             | SocketSendError
+             | SocketSendInvalidLength Int Int -- Expected, Sent
+             | SocketRecvTimeout
+             | SocketRecvError
+             | SocketConnectTimeout
+             | SocketConnectError
+             | UnknownError
              deriving (Show, Generic)
 
 
