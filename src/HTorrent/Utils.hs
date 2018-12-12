@@ -81,7 +81,7 @@ btConstructPayload b = BS.concat $ BSL.toStrict <$> b
 
 -- | Socket helpers (with try and timeout)
 --
-defaultTimeout = 500000
+defaultTimeout = 1000000
 
 htSocketConnect :: Socket -> NS.SockAddr -> HTMonad ()
 htSocketConnect socket a = do

@@ -43,6 +43,7 @@ data HTState = HTState
   , _htsConnectionId         :: ByteString
   , _htsConnectedSocket      :: Socket
   , _htsLastRecvBuffer       :: ByteString
+  , _htsCurrentPiece         :: ByteString
   , _htsTotalDownloadedBytes :: Integer
   , _htsPeerBitfield         :: Maybe [Int]
   , _htsHasDownloadedPieces  :: Map Integer Bool

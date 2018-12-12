@@ -44,7 +44,7 @@ hTorrent = do
   peerWireProtocol
   -- TODO: More stuff
 
-initialState = HTState [] [] BS.empty socket BS.empty 0 Nothing M.empty M.empty M.empty
+initialState = HTState [] [] BS.empty socket BS.empty BS.empty 0 Nothing M.empty M.empty M.empty
   where socket = unsafePerformIO $ NS.socket NS.AF_INET NS.Stream NS.defaultProtocol
 
 main :: IO ()

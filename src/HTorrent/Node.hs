@@ -39,6 +39,9 @@ btTransactionId = fromInteger . unsafePerformIO $ randomInt32
 btKey :: Word32
 btKey = fromInteger . unsafePerformIO $ randomInt32
 
+btRequestSize :: Word32
+btRequestSize = 2^14
+
 -- | Given MetaInfo (Torrent file), parse the information
 -- into the state monad
 --
@@ -52,7 +55,6 @@ parseMetaInfo = do
       pieces      = _tiPieces (_miInfo mi)
       piecesList  = [(sliceBS i (i + 20) pieces, toInteger $ i `quot` 20) | i <- [0,20..(BS.length pieces)]]
       piecesIndex = M.fromList piecesList :: M.Map Hash Integer
-  liftIO $ print $ BS.length pieces
   -- Modify Pieces Index Map (A.K.A Dictionary)
   modify (\s -> s { _htsPiecesIndex = piecesIndex
                   , _htsAnnouncers = announcers'
@@ -64,7 +66,7 @@ parseMetaInfo = do
 -- | Handshake (bitfield is sent along with handshake usually)
 --
 validHandshakeResp :: MetaInfo -> BS.ByteString -> Bool
-validHandshakeResp m bs = if BS.length bs >= 68 
+validHandshakeResp m bs = if BS.length bs >= 68
     then b1 && b2 && b3
     else False
       where b1 = ((Binary.decode $ BSL.fromStrict $ sliceBS 0 1 bs) :: Int8) == 19
@@ -111,7 +113,7 @@ pwpHandshake = do
   case validHandshakeResp mi handshakeResp of
     False -> throwError InvalidPeerHandshake
     True  -> do
-      -- Ignore errors thrown by bitfield as 
+      -- Ignore errors thrown by bitfield as
       -- Not all clients will return bitfield data
       (parseBitfieldResp bitfieldResp) `catchError` (const $ modify (\s -> s { _htsPeerBitfield = Nothing } ))
       return ()
@@ -127,28 +129,66 @@ validBitfieldResp bs = undefined
 
 -- | Interested
 --
+pwpInterestedPayload :: BS.ByteString
+pwpInterestedPayload = btConstructPayload [p1, p2]
+  where p1 = Binary.encode (1 :: Int32)
+        p2 = Binary.encode (2 :: Int8)
+
+pwpInterested :: HTMonad()
+pwpInterested = do
+  socket <- gets _htsConnectedSocket
+  -- Send payload
+  htSocketSend socket pwpInterestedPayload
+  -- Recv payload
+  htSocketRecv socket 1024
+
+-- | Request
+--
+
+-- | How many blocks to download (based on request size)
+--
+getBlocksNo :: MetaInfo -> Integer
+getBlocksNo m = getTotalLength m `quot` (fromIntegral btRequestSize)
+
+pwpRequestPayload :: Int -> Int -> BS.ByteString
+pwpRequestPayload pieceNo pieceOffset = btConstructPayload [p1, p2, p3, p4, p5]
+  where p1 = Binary.encode (13 :: Word32)
+        p2 = Binary.encode (6 :: Int8)
+        p3 = Binary.encode (fromIntegral pieceNo :: Word32)
+        p4 = Binary.encode (fromIntegral pieceOffset :: Word32)
+        p5 = Binary.encode btRequestSize
+
+pwpRequestPiece :: Int -> Int -> HTMonad ()
+pwpRequestPiece pieceNo pieceOffset = do
+  socket <- gets _htsConnectedSocket
+  -- Send payload
+  htSocketSend socket (pwpRequestPayload pieceNo pieceOffset)
+  -- Recv payload
+  htSocketRecv socket (fromIntegral btRequestSize)
+  gets _htsLastRecvBuffer >>= liftIO . print
+  return ()
+
+pwpRequestAll :: HTMonad ()
+pwpRequestAll = do
+  m <- asks _hteMetaInfo
+  let blocksNo = getBlocksNo m
+  undefined
+
 
 -- | Helper function to connect to peer
 --
-connectToPeer :: [(IP, Port)] -> HTMonad ()
-connectToPeer []                = throwError NoAvailablePeers
-connectToPeer ((ip, port) : xs) = do
-  liftIO $ putStrLn $ "Connecting to peer: " ++ ip ++ " " ++ port
-  (newPeerSocket ip port) `catchError` (const $ connectToPeer xs)
-  liftIO $ putStrLn $ "Connected to peer: " ++ ip ++ " " ++ port
-  liftIO $ putStrLn $ "Attempting peer handshake: " ++ ip ++ " " ++ port
-  pwpHandshake `catchError` (const $ connectToPeer xs)
-  bytesRecv <- gets _htsLastRecvBuffer
-  liftIO $ putStrLn $ "Handshake successful"
-  gets _htsLastRecvBuffer >>= liftIO . print
-  liftIO $ putStrLn $ "Received Bitfield: "
-  gets _htsPeerBitfield >>= liftIO . print
+pwpHandler :: [(IP, Port)] -> HTMonad ()
+pwpHandler []                = throwError NoAvailablePeers
+pwpHandler ((ip, port) : xs) = do
+  (newPeerSocket ip port) `catchError` (const $ pwpHandler xs)
+  liftIO $ putStrLn "Connecting..."
+  pwpHandshake `catchError` (const $ pwpHandler xs)
+  liftIO $ putStrLn "Connected..."
+  pwpInterested `catchError` (const $ pwpHandler xs)
+  liftIO $ putStrLn "Interested..."
+  (pwpRequestPiece 0 0) `catchError` (const $ pwpHandler xs)
+  liftIO $ putStrLn "Requested..."
   return ()
 
 peerWireProtocol :: HTMonad ()
-peerWireProtocol = do
-  peers <- gets _htsPeers
-  -- TODO: catchError and try get other peers
-  connectToPeer peers
-  return ()
-
+peerWireProtocol = gets _htsPeers >>= pwpHandler
