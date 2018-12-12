@@ -124,6 +124,10 @@ validBitfieldResp bs = undefined
   where p1 = (Binary.decode $ BSL.fromStrict $ sliceBS 0 4 bs) :: Int32
         p2 = (Binary.decode $ BSL.fromStrict $ sliceBS 4 5 bs) :: Int8
 
+
+-- | Interested
+--
+
 -- | Helper function to connect to peer
 --
 connectToPeer :: [(IP, Port)] -> HTMonad ()
