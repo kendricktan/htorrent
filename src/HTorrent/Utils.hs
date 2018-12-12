@@ -11,6 +11,7 @@ import           Data.Text                 (Text (..))
 import           Data.Word
 import           HTorrent.Types
 import           Network.Socket            (tupleToHostAddress)
+import           Network.Socket            (Socket (..))
 import           Network.URI
 import           System.Random
 import           System.Timeout            (timeout)
@@ -82,7 +83,7 @@ btConstructPayload b = BS.concat $ BSL.toStrict <$> b
 --
 defaultTimeout = 500000
 
-htSocketConnect :: NS.Socket -> NS.SockAddr -> HTMonad ()
+htSocketConnect :: Socket -> NS.SockAddr -> HTMonad ()
 htSocketConnect socket a = do
   maybeSocket <- liftIO $ timeout defaultTimeout $ (try $ NS.connect socket a :: IO (Either IOError ()))
   case maybeSocket of
@@ -94,7 +95,7 @@ htSocketConnect socket a = do
                    return ()
 
 
-htSocketSend :: NS.Socket -> BS.ByteString -> HTMonad ()
+htSocketSend :: Socket -> BS.ByteString -> HTMonad ()
 htSocketSend s bs = do
   maybeSent <- liftIO $ timeout defaultTimeout $ (try $ NSBS.send s bs :: IO (Either IOError Int))
   case maybeSent of
@@ -105,7 +106,7 @@ htSocketSend s bs = do
                                                           True  -> return ()
                                                           False -> throwError $ SocketSendInvalidLength (BS.length bs) bytesSentNo
 
-htSocketRecv :: NS.Socket -> Int -> HTMonad ()
+htSocketRecv :: Socket -> Int -> HTMonad ()
 htSocketRecv s i = do
   maybeRecv <- liftIO $ timeout defaultTimeout $ (try $ NSBS.recv s i :: IO (Either IOError BS.ByteString))
   case maybeRecv of
@@ -115,11 +116,43 @@ htSocketRecv s i = do
                                    Right bytesRecv -> do
                                      modify (\s -> s { _htsLastRecvBuffer = bytesRecv } )
                                      return ()
+-- Socket Helper functions
+--
+newSocketFromAnnounce :: Text -> HTMonad ()
+newSocketFromAnnounce a = case parseAnnounce a of
+  Nothing -> throwError (InvalidAnnounce a)
+  Just (s, h, p) -> do
+    socket <- liftIO $ NS.socket NS.AF_INET NS.Datagram NS.defaultProtocol
+    -- Get socket destination info
+    sa <- liftIO $ NS.getAddrInfo (Just NS.defaultHints) (Just h) (Just p)
+    -- Connect socket to address
+    htSocketConnect socket (NS.addrAddress $ head sa)
+
+newPeerSocket :: IP -> Port -> HTMonad ()
+newPeerSocket h p = do
+  let hints = NS.defaultHints { NS.addrFlags = [NS.AI_NUMERICHOST, NS.AI_NUMERICSERV], NS.addrSocketType = NS.Stream }
+  -- Net socket
+  socket <- liftIO $ NS.socket NS.AF_INET NS.Stream NS.defaultProtocol
+  -- Get socket destination info
+  sa <- liftIO $ NS.getAddrInfo (Just hints) (Just h) (Just p)
+  -- Try and connect socket
+  htSocketConnect socket (NS.addrAddress $ head sa)
+
+-- Release Socket if Exception Occurs
+--
+runSocket :: Socket -> (Socket -> IO c) -> IO c
+runSocket socket = bracket (return socket) NS.close
 
 -- | Array/ByteString Slice
 --
 sliceBS :: Int -> Int -> ByteString -> ByteString
 sliceBS start end = BS.take (end - start + 1) . BS.drop start
+
+-- | Bin 2 Binary
+--
+toBinary :: Int -> [Int]
+toBinary 0 = [0]
+toBinary n = toBinary (n `quot` 2) ++ [n `rem` 2]
 
 -- | RNG Helpers
 --

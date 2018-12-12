@@ -6,14 +6,13 @@
 
 module HTorrent.Types where
 
-import           GHC.Generics
-
-
 import           Data.BEncode
 import           Data.ByteString          (ByteString (..))
 import           Data.Map.Lazy            (Map (..))
 import           Data.Maybe               (Maybe (..))
 import           Data.Text                (Text (..))
+import           Data.Word
+import           GHC.Generics
 import           Network.Socket           (HostAddress (..), Socket (..))
 
 import           Control.Monad.Except
@@ -45,6 +44,7 @@ data HTState = HTState
   , _htsConnectedSocket      :: Socket
   , _htsLastRecvBuffer       :: ByteString
   , _htsTotalDownloadedBytes :: Integer
+  , _htsPeerBitfield         :: Maybe [Int]
   , _htsHasDownloadedPieces  :: Map Integer Bool
   , _htsDownloadedPieces     :: Map Integer ByteString
   , _htsPiecesIndex          :: Map Hash Integer
@@ -64,6 +64,8 @@ data HTError = InvalidAnnounce Text
              | SocketRecvError
              | SocketConnectTimeout
              | SocketConnectError
+             | InvalidPeerHandshake
+             | InvalidPeerBitfield
              | UnknownError
              deriving (Show, Generic)
 

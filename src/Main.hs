@@ -11,7 +11,6 @@ import           Data.Either               (either)
 import           Data.Int
 import           Data.Text                 (Text (..))
 import           Data.Word
-import           HTorrent.IPC
 import           HTorrent.Node
 import           HTorrent.Tracker.UDP
 import           HTorrent.Types
@@ -35,7 +34,7 @@ import qualified Data.Text                 as T
 hTorrent :: HTMonad ()
 hTorrent = do
   -- First begin by converting the torrent information into an initial state
-  convertMetaInfo2State
+  parseMetaInfo
   -- Try and connect to the announcer(s)
   -- This step also does the `connecting` and `announcing` protocol
   -- Also saves the peers obtained from the announcer
@@ -45,7 +44,7 @@ hTorrent = do
   peerWireProtocol
   -- TODO: More stuff
 
-initialState = HTState [] [] BS.empty socket BS.empty 0 M.empty M.empty M.empty
+initialState = HTState [] [] BS.empty socket BS.empty 0 Nothing M.empty M.empty M.empty
   where socket = unsafePerformIO $ NS.socket NS.AF_INET NS.Stream NS.defaultProtocol
 
 main :: IO ()

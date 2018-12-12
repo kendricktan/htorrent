@@ -11,8 +11,9 @@ import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State.Lazy
 import           Data.Int
+import           Data.Text                 (Text (..))
 import           Data.Word
-import           HTorrent.IPC
+import           HTorrent.Node
 import           HTorrent.Types
 import           HTorrent.Utils
 import           HTorrent.Version
@@ -123,3 +124,16 @@ udpAnnouncing = do
                  let peers = binDecodePeers (sliceBS 20 (BS.length bytesRecv) bytesRecv)
                  modify (\s -> s { _htsPeers = peers })
                  return ()
+
+-- | Connect to Announce
+--
+connectToAnnounce :: [Text] -> HTMonad ()
+connectToAnnounce []       = throwError NoAvailableAnnounce
+connectToAnnounce (a : as) = do
+  let handleErr ma = ma `catchError` (const $ connectToAnnounce as)
+  -- Initiate Socket
+  handleErr (newSocketFromAnnounce a)
+  -- Send `Connecting` to UDP Tracker
+  handleErr udpConnecting
+  -- Send `Announcing` to UDP Tracker
+  handleErr udpAnnouncing
