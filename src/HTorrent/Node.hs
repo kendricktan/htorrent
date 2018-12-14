@@ -18,10 +18,11 @@ import           Control.Monad.Reader
 import           Control.Monad.State.Lazy
 import           Data.ByteString           (ByteString (..))
 
+import qualified Crypto.Hash.SHA1          as SHA1
 import qualified Data.Binary               as Binary
 import qualified Data.ByteString           as BS
 import qualified Data.ByteString.Lazy      as BSL
-import qualified Data.Map                  as M
+import qualified Data.Map.Strict           as M
 import qualified Data.Text                 as T
 import qualified Network.Socket            as NS
 import qualified Network.Socket.ByteString as NSBS
@@ -53,11 +54,11 @@ parseMetaInfo = do
       announcers  = maybe [[announce]] ((++) [[announce]]) (_miAnnounceList mi)
       announcers' = concat announcers
       pieces      = _tiPieces (_miInfo mi)
-      piecesList  = [(sliceBS i (i + 20) pieces, toInteger $ i `quot` 20) | i <- [0,20..(BS.length pieces)]]
-      piecesIndex = M.fromList piecesList :: M.Map Hash Integer
+      piecesList  = [(toInteger $ i `quot` 20, sliceBS i (i + 19) pieces) | i <- filter (\x -> x `rem` 20 == 0) [0..(BS.length pieces)]]
+      piecesIndex = M.fromList piecesList :: M.Map Integer Hash
   -- Modify Pieces Index Map (A.K.A Dictionary)
-  modify (\s -> s { _htsPiecesIndex = piecesIndex
-                  , _htsAnnouncers = announcers'
+  modify (\s -> s { _htsPiecesIndexHash = piecesIndex
+                  , _htsAnnouncers      = announcers'
                   })
 
 ---- | PeerWireProtocol | ----
@@ -145,34 +146,102 @@ pwpInterested = do
 -- | Request
 --
 
--- | How many blocks to download (based on request size)
+-- | How many pieces to download (based on request size)
 --
-getBlocksNo :: MetaInfo -> Integer
-getBlocksNo m = getTotalLength m `quot` (fromIntegral btRequestSize)
+getPiecesNo :: MetaInfo -> Integer
+getPiecesNo m = getTotalLength m `quot` (fromIntegral btRequestSize)
 
-pwpRequestPayload :: Int -> Int -> BS.ByteString
+pwpRequestPayload :: Integer -> Integer -> BS.ByteString
 pwpRequestPayload pieceNo pieceOffset = btConstructPayload [p1, p2, p3, p4, p5]
   where p1 = Binary.encode (13 :: Word32)
-        p2 = Binary.encode (6 :: Int8)
+        p2 = Binary.encode (6 :: Word8)
         p3 = Binary.encode (fromIntegral pieceNo :: Word32)
         p4 = Binary.encode (fromIntegral pieceOffset :: Word32)
         p5 = Binary.encode btRequestSize
 
-pwpRequestPiece :: Int -> Int -> HTMonad ()
-pwpRequestPiece pieceNo pieceOffset = do
-  socket <- gets _htsConnectedSocket
-  -- Send payload
-  htSocketSend socket (pwpRequestPayload pieceNo pieceOffset)
-  -- Recv payload
-  htSocketRecv socket (fromIntegral btRequestSize)
-  gets _htsLastRecvBuffer >>= liftIO . print
-  return ()
+-- The request socket might not necessarily be fulfilled
+-- within a single request, hence we need a helper function
+-- to help continually extract the pieces
+pwpRequestPieceLen :: Integer -> BS.ByteString -> HTMonad BS.ByteString
+pwpRequestPieceLen pieceLen bs = case BS.length bs < fromIntegral pieceLen of
+                                   False -> return bs
+                                   True -> do
+                                     socket <- gets _htsConnectedSocket
+                                     htSocketRecv socket (fromIntegral btRequestSize)
+                                     bytesRecv <- gets _htsLastRecvBuffer
+                                     pwpRequestPieceLen pieceLen (BS.append bs bytesRecv)
+
+pwpRequestPiece :: Integer -> BS.ByteString -> Integer -> HTMonad ()
+pwpRequestPiece i bs pieceNo = do
+  mi <- asks _hteMetaInfo
+  let collectedPieceSize = fromIntegral $ BS.length bs
+      pieceSize          = (_tiPieceLength . _miInfo) mi
+  liftIO $ putStrLn $ "Requesting piece " ++ (show pieceNo) ++ " got: " ++ (show $ BS.length bs) ++ ", want: " ++ (show pieceSize)
+  case collectedPieceSize >= pieceSize of
+
+    -- Haven't finished collecting
+    False -> do
+      socket <- gets _htsConnectedSocket
+      -- Send payload
+      htSocketSend socket (pwpRequestPayload pieceNo collectedPieceSize)
+      -- Recv payload
+      htSocketRecv socket (fromIntegral btRequestSize)
+      -- Return ByteString
+      bytesRecv <- gets _htsLastRecvBuffer
+      -- Payload is bytes 13 onwards
+      case BS.length bytesRecv >= 12 of
+        -- TODO: Check if its been doing this for > 5 times or smthg
+        False -> case i >= 5 of
+                   True -> throwError $ InvalidRecvBytes "Requesting" BS.empty
+                   False -> pwpRequestPiece (i+1) bs pieceNo
+        True -> do
+          let respLen     = fromIntegral (Binary.decode (BSL.fromStrict $ sliceBS 0 4 bytesRecv) :: Word32) - 9
+              respId      = Binary.decode (BSL.fromStrict $ sliceBS 4 5 bytesRecv) :: Word8
+              respIndex   = Binary.decode (BSL.fromStrict $ sliceBS 5 9 bytesRecv) :: Word32
+              respBegin   = fromIntegral (Binary.decode (BSL.fromStrict $ sliceBS 9 13 bytesRecv) :: Word32)
+              respPayload = sliceBS 13 (BS.length bytesRecv) bytesRecv
+          case respId == 7 of
+            False -> throwError InvalidRequestId
+            True -> do
+              case respBegin > BS.length bs of
+                True -> case i >= 5 of
+                          True -> throwError $ InvalidRecvBytes "Requesting" BS.empty
+                          False -> pwpRequestPiece (i+1) bs pieceNo
+                False -> do
+                  bs' <- pwpRequestPieceLen respLen respPayload
+                  pwpRequestPiece 0 (BS.append (BS.take respBegin bs) bs') pieceNo
+
+    -- Finished collecting
+    True -> do
+      piecesIndexHash <- gets _htsPiecesIndexHash
+      let piece                 = BS.take (fromIntegral pieceSize) bs
+          pieceHash             = SHA1.hash piece
+          maybeCorrectPieceHash = M.lookup pieceNo piecesIndexHash
+      -- Check Hash
+      case (== pieceHash) <$> maybeCorrectPieceHash of
+        Nothing    -> do
+          liftIO $ putStrLn "InvalidPiecesIndexLookup"
+          throwError $ InvalidPiecesIndexLookup (fromIntegral pieceNo)
+        Just False -> let (Just cph) = maybeCorrectPieceHash
+                       in do
+                         liftIO $ putStrLn "InvalidHash!"
+                         liftIO $ putStrLn $ "Valid hash: " ++ (show cph)
+                         liftIO $ putStrLn $ "Your hash: " ++ (show pieceHash)
+                         throwError $ InvalidInfoHash (fromIntegral pieceNo) cph pieceHash
+        Just True  -> do
+          liftIO $ putStrLn "Success!"
+          -- Save File
+          liftIO $ BS.writeFile ("piece" ++ (show pieceNo) ++ ".part") piece
+          mdp <- gets _htsDownloadedPieces
+          modify (\s -> s { _htsDownloadedPieces = M.insert (fromIntegral pieceNo) piece mdp })
 
 pwpRequestAll :: HTMonad ()
 pwpRequestAll = do
   m <- asks _hteMetaInfo
-  let blocksNo = getBlocksNo m
-  undefined
+  let blocksNo = getPiecesNo m
+  pwpRequestPiece 0 BS.empty 0
+  -- foldl (\_ a -> pwpRequestPiece 0 BS.empty a) (return ()) [0..blocksNo]
+  -- return ()
 
 
 -- | Helper function to connect to peer
@@ -186,7 +255,7 @@ pwpHandler ((ip, port) : xs) = do
   liftIO $ putStrLn "Connected..."
   pwpInterested `catchError` (const $ pwpHandler xs)
   liftIO $ putStrLn "Interested..."
-  (pwpRequestPiece 0 0) `catchError` (const $ pwpHandler xs)
+  pwpRequestAll `catchError` (const $ pwpHandler xs)
   liftIO $ putStrLn "Requested..."
   return ()
 

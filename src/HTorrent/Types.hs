@@ -29,7 +29,6 @@ type Host   = String
 type Port   = String
 type Scheme = String
 
-
 -- | Env & State
 --
 data HTEnv = HTEnv
@@ -43,12 +42,11 @@ data HTState = HTState
   , _htsConnectionId         :: ByteString
   , _htsConnectedSocket      :: Socket
   , _htsLastRecvBuffer       :: ByteString
-  , _htsCurrentPiece         :: ByteString
   , _htsTotalDownloadedBytes :: Integer
   , _htsPeerBitfield         :: Maybe [Int]
   , _htsHasDownloadedPieces  :: Map Integer Bool
   , _htsDownloadedPieces     :: Map Integer ByteString
-  , _htsPiecesIndex          :: Map Hash Integer
+  , _htsPiecesIndexHash      :: Map Integer Hash
   } deriving Show
 
 
@@ -67,6 +65,9 @@ data HTError = InvalidAnnounce Text
              | SocketConnectError
              | InvalidPeerHandshake
              | InvalidPeerBitfield
+             | InvalidInfoHash Int Hash Hash  -- PieceNo, Expected, Received
+             | InvalidPiecesIndexLookup Int
+             | InvalidRequestId
              | UnknownError
              deriving (Show, Generic)
 
