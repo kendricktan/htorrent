@@ -14,6 +14,7 @@ import           Data.Text                (Text (..))
 import           Data.Word
 import           GHC.Generics
 import           Network.Socket           (HostAddress (..), Socket (..))
+import           System.IO                (FilePath (..))
 
 import           Control.Monad.Except
 import           Control.Monad.Reader
@@ -42,10 +43,10 @@ data HTState = HTState
   , _htsConnectionId         :: ByteString
   , _htsConnectedSocket      :: Socket
   , _htsLastRecvBuffer       :: ByteString
-  , _htsTotalDownloadedBytes :: Integer
+  , _htsBlocksLeft           :: Integer
   , _htsPeerBitfield         :: Maybe [Int]
+  , _htsSaveDirectory        :: FilePath
   , _htsHasDownloadedPieces  :: Map Integer Bool
-  , _htsDownloadedPieces     :: Map Integer ByteString
   , _htsPiecesIndexHash      :: Map Integer Hash
   } deriving Show
 

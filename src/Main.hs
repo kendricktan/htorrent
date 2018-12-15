@@ -2,49 +2,42 @@
 
 module Main where
 
-import           Control.Exception.Base    (try)
-import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State.Lazy
 import           Control.Monad.Trans       (liftIO)
-import           Data.Either               (either)
-import           Data.Int
-import           Data.Text                 (Text (..))
-import           Data.Word
 import           HTorrent.Node
 import           HTorrent.Tracker.UDP
 import           HTorrent.Types
 import           HTorrent.Utils
-import           Network.Socket            (SockAddr (..), Socket (..))
 import           System.Environment
 import           System.IO.Unsafe          (unsafePerformIO)
-import           System.Timeout            (timeout)
 
 import qualified Network.Socket            as NS
 import qualified Network.Socket.ByteString as NSBS
 
 import qualified Data.BEncode              as BE
-import qualified Data.Binary               as Binary
 import qualified Data.ByteString           as BS
-import qualified Data.ByteString.Lazy      as BSL
 import qualified Data.Map                  as M
-import qualified Data.Text                 as T
 
 
 hTorrent :: HTMonad ()
 hTorrent = do
-  -- First begin by converting the torrent information into an initial state
+  -- Setup directory
+  setupDirectory
+  -- Parse torrent information
   parseMetaInfo
+  -- Scan for previously downloaded pieces
+  -- *Creates directory for file if new torrent
+  scanPreviouslyDownloaded
   -- Try and connect to the announcer(s)
   -- This step also does the `connecting` and `announcing` protocol
   -- Also saves the peers obtained from the announcer
   gets _htsAnnouncers >>= connectToAnnounce
-  -- After getting list of peers, attempt to do peer wire protocol
-  -- with each peer
+  -- After getting list of peers, perform peer wire protocol
+  -- with each peer until every single piece is requested
   peerWireProtocol
-  -- TODO: More stuff
 
-initialState = HTState [] [] BS.empty socket BS.empty 0 Nothing M.empty M.empty M.empty
+initialState = HTState [] [] BS.empty socket BS.empty 0 Nothing "" M.empty M.empty
   where socket = unsafePerformIO $ NS.socket NS.AF_INET NS.Stream NS.defaultProtocol
 
 main :: IO ()

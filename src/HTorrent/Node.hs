@@ -4,15 +4,19 @@ module HTorrent.Node where
 
 
 import           Data.Int
+import           Data.List.Split
 import           Data.Text                 (Text (..))
 import           Data.Word
 import           HTorrent.Types
 import           HTorrent.Utils
 import           HTorrent.Version
 import           Network.Socket            (Socket (..))
+import           System.Directory
 import           System.IO.Unsafe          (unsafePerformIO)
 import           System.Timeout
 
+import           Control.Exception         (try)
+import           Control.Monad
 import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State.Lazy
@@ -43,22 +47,67 @@ btKey = fromInteger . unsafePerformIO $ randomInt32
 btRequestSize :: Word32
 btRequestSize = 2^14
 
+-- | Setup Root directory (~/.htorrent)
+--
+setupDirectory :: HTMonad ()
+setupDirectory = do
+  -- Get user's home directory
+  home <- liftIO $ getHomeDirectory
+  -- Create ~/.htorrent
+  _ <- liftIO (try (createDirectory $ home ++ "/.htorrent") :: IO (Either IOError ()))
+  return ()
+
+
+-- | Scans previously downloaded files
+--
+scanPreviouslyDownloaded :: HTMonad ()
+scanPreviouslyDownloaded = do
+  saveDirectory <- gets _htsSaveDirectory
+  -- Create ~/.htorrent/<name of torrent>
+  -- (Exception occurs when directory exists)
+  _ <- liftIO (try (createDirectory saveDirectory) :: IO (Either IOError ()))
+  --
+  files <- liftIO $ listDirectory saveDirectory
+  foldM (\_ f -> checkPiece (saveDirectory ++ "/" ++ f)) () files
+    -- checkPiece updates _htsHasDownlaodedPieces should
+    -- a valid piece be found within the specified folder
+    where checkPiece :: FilePath -> HTMonad ()
+          checkPiece fp = do
+            piecesIndexHash <- gets _htsPiecesIndexHash
+            fileBytes <- liftIO $ BS.readFile $ fp
+            let pieceNo       = read . last $ splitOn "." fp :: Integer
+                filePieceHash = SHA1.hash fileBytes
+                correctHash   = M.lookup pieceNo piecesIndexHash
+            case (== filePieceHash) <$> correctHash of
+              Just True -> do
+                blocksLeft <- (<$>) (\x -> x - 1) (gets _htsBlocksLeft)
+                downloadedPieces <- gets _htsHasDownloadedPieces
+                modify (\s -> s { _htsHasDownloadedPieces = M.insert pieceNo True downloadedPieces
+                                , _htsBlocksLeft          = blocksLeft
+                                })
+              _ -> return ()
+
 -- | Given MetaInfo (Torrent file), parse the information
 -- into the state monad
 --
 parseMetaInfo :: HTMonad ()
 parseMetaInfo = do
+  home <- liftIO $ getHomeDirectory
   mi <- asks _hteMetaInfo
-  let torrentinfo = _miInfo mi
-      announce    = _miAnnounce mi
-      announcers  = maybe [[announce]] ((++) [[announce]]) (_miAnnounceList mi)
-      announcers' = concat announcers
-      pieces      = _tiPieces (_miInfo mi)
-      piecesList  = [(toInteger $ i `quot` 20, sliceBS i (i + 19) pieces) | i <- filter (\x -> x `rem` 20 == 0) [0..(BS.length pieces)]]
-      piecesIndex = M.fromList piecesList :: M.Map Integer Hash
+  let torrentinfo   = _miInfo mi
+      announce      = _miAnnounce mi
+      announcers    = maybe [[announce]] ((++) [[announce]]) (_miAnnounceList mi)
+      announcers'   = concat announcers
+      pieces        = _tiPieces (_miInfo mi)
+      piecesList    = [(toInteger $ i `quot` 20, sliceBS i (i + 19) pieces) | i <- filter (\x -> x `rem` 20 == 0) [0..(BS.length pieces)]]
+      piecesIndex   = M.fromList piecesList :: M.Map Integer Hash
+      saveDirectory = home ++ "/.htorrent/" ++ (T.unpack $ _tiName (_miInfo mi))
+      blocksLeft    = getBlocksNo mi
   -- Modify Pieces Index Map (A.K.A Dictionary)
   modify (\s -> s { _htsPiecesIndexHash = piecesIndex
                   , _htsAnnouncers      = announcers'
+                  , _htsSaveDirectory   = saveDirectory
+                  , _htsBlocksLeft      = blocksLeft
                   })
 
 ---- | PeerWireProtocol | ----
@@ -146,10 +195,22 @@ pwpInterested = do
 -- | Request
 --
 
--- | How many pieces to download (based on request size)
+-- How many pieces to download (based on request size)
 --
-getPiecesNo :: MetaInfo -> Integer
-getPiecesNo m = getTotalLength m `quot` (fromIntegral btRequestSize)
+getBlocksNo :: MetaInfo -> Integer
+getBlocksNo m = getTotalLength m `quot` (fromIntegral btRequestSize)
+
+-- Which blocks have we not obtained yet?
+--
+getUnobtainedBlocks :: HTMonad [Integer]
+getUnobtainedBlocks = do
+  m <- asks _hteMetaInfo
+  hasDownloadedPieces <- gets _htsHasDownloadedPieces
+  let unobtainedBlocks = foldl (\acc a -> case M.lookup a hasDownloadedPieces of
+                                             Just True -> acc
+                                             _         -> acc ++ [a]) [] [0..(getBlocksNo m)]
+  return unobtainedBlocks
+
 
 pwpRequestPayload :: Integer -> Integer -> BS.ByteString
 pwpRequestPayload pieceNo pieceOffset = btConstructPayload [p1, p2, p3, p4, p5]
@@ -176,7 +237,7 @@ pwpRequestPiece i bs pieceNo = do
   mi <- asks _hteMetaInfo
   let collectedPieceSize = fromIntegral $ BS.length bs
       pieceSize          = (_tiPieceLength . _miInfo) mi
-  liftIO $ putStrLn $ "Requesting piece " ++ (show pieceNo) ++ " got: " ++ (show $ BS.length bs) ++ ", want: " ++ (show pieceSize)
+  liftIO $ putStrLn $ "Requesting block " ++ (show pieceNo) ++ ", downloading pieces.. [" ++ (show $ BS.length bs) ++ "/" ++ (show pieceSize) ++ "]"
   case collectedPieceSize >= pieceSize of
 
     -- Haven't finished collecting
@@ -226,22 +287,27 @@ pwpRequestPiece i bs pieceNo = do
                        in do
                          liftIO $ putStrLn "InvalidHash!"
                          liftIO $ putStrLn $ "Valid hash: " ++ (show cph)
-                         liftIO $ putStrLn $ "Your hash: " ++ (show pieceHash)
+                         liftIO $ putStrLn $ "Computed hash: " ++ (show pieceHash)
                          throwError $ InvalidInfoHash (fromIntegral pieceNo) cph pieceHash
         Just True  -> do
-          liftIO $ putStrLn "Success!"
           -- Save File
-          liftIO $ BS.writeFile ("piece" ++ (show pieceNo) ++ ".part") piece
-          mdp <- gets _htsDownloadedPieces
-          modify (\s -> s { _htsDownloadedPieces = M.insert (fromIntegral pieceNo) piece mdp })
+          saveDirectory <- gets _htsSaveDirectory
+          liftIO $ BS.writeFile (saveDirectory ++ "/block." ++ (show pieceNo)) piece
+          downloadedPieces <- gets _htsHasDownloadedPieces
+          blocksLeft <- (<$>) (\x -> x - 1) (gets _htsBlocksLeft)
+          modify (\s -> s { _htsHasDownloadedPieces = M.insert (fromIntegral pieceNo) True downloadedPieces
+                          , _htsBlocksLeft          = blocksLeft
+                          })
+          -- Just for pretty printing
+          liftIO $ putStrLn $ "Successfully obtained block " ++ (show pieceNo) ++ " [" ++ (show blocksLeft) ++ " left]"
 
 pwpRequestAll :: HTMonad ()
 pwpRequestAll = do
-  m <- asks _hteMetaInfo
-  let blocksNo = getPiecesNo m
-  pwpRequestPiece 0 BS.empty 0
-  -- foldl (\_ a -> pwpRequestPiece 0 BS.empty a) (return ()) [0..blocksNo]
-  -- return ()
+  -- Need to rescan all blocks as
+  -- state is loss on error thrown
+  scanPreviouslyDownloaded
+  unobtainedBlocks <- getUnobtainedBlocks
+  foldM (\_ a -> pwpRequestPiece 0 BS.empty a) () unobtainedBlocks
 
 
 -- | Helper function to connect to peer
@@ -250,13 +316,11 @@ pwpHandler :: [(IP, Port)] -> HTMonad ()
 pwpHandler []                = throwError NoAvailablePeers
 pwpHandler ((ip, port) : xs) = do
   (newPeerSocket ip port) `catchError` (const $ pwpHandler xs)
-  liftIO $ putStrLn "Connecting..."
-  pwpHandshake `catchError` (const $ pwpHandler xs)
-  liftIO $ putStrLn "Connected..."
+  liftIO $ putStrLn "Connecting to peer..."
+  pwpHandshake `catchError` (const $ liftIO (putStrLn "Failed to connect to peer") >> pwpHandler xs)
+  liftIO $ putStrLn "Connected to peer..."
   pwpInterested `catchError` (const $ pwpHandler xs)
-  liftIO $ putStrLn "Interested..."
   pwpRequestAll `catchError` (const $ pwpHandler xs)
-  liftIO $ putStrLn "Requested..."
   return ()
 
 peerWireProtocol :: HTMonad ()
